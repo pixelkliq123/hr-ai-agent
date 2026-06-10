@@ -1,7 +1,6 @@
-openai
-python-dotenv
-streamlit
+fastapi
+uvicorn[standard]
+python-multipart
+anthropic
 PyPDF2
-groq
-pandas
-openpyxl
+docx2txt

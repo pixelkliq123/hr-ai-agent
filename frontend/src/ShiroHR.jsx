@@ -10,6 +10,7 @@ const categoryConfig = {
 };
 
 export default function ShiroHR() {
+  const [auth, setAuth] = useState({ username: "", password: "", loggedIn: false, error: "" });
   const [jdFile, setJdFile] = useState(null);
   const [resumeFiles, setResumeFiles] = useState([]);
   const [weights, setWeights] = useState(WEIGHTS_DEFAULT);
@@ -23,6 +24,24 @@ export default function ShiroHR() {
   const resumeRef = useRef();
 
   const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0);
+
+  const handleLogin = async () => {
+    try {
+      const res = await fetch("/api/verify-login", {
+        method: "POST",
+        headers: {
+          "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`)
+        }
+      });
+      if (res.ok) {
+        setAuth(a => ({ ...a, loggedIn: true, error: "" }));
+      } else {
+        setAuth(a => ({ ...a, error: "Invalid credentials. Please try again." }));
+      }
+    } catch {
+      setAuth(a => ({ ...a, error: "Connection error. Try again." }));
+    }
+  };
 
   const handleJdDrop = useCallback((e) => {
     e.preventDefault();
@@ -56,7 +75,13 @@ export default function ShiroHR() {
     formData.append("weights", JSON.stringify(weights));
 
     try {
-      const res = await fetch("/api/screen", { method: "POST", body: formData });
+      const res = await fetch("/api/screen", {
+        method: "POST",
+        headers: {
+          "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`)
+        },
+        body: formData
+      });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
       setResults(data);
@@ -76,6 +101,49 @@ export default function ShiroHR() {
     return acc;
   }, {});
 
+  // LOGIN SCREEN
+  if (!auth.loggedIn) {
+    return (
+      <div style={styles.root}>
+        <div style={styles.loginWrap}>
+          <div style={styles.loginBox}>
+            <div style={styles.loginLogo}>S</div>
+            <div style={styles.loginTitle}>Shiro <span style={styles.logoAccent}>AI HR</span></div>
+            <div style={styles.loginSub}>Authorized HR Personnel Only</div>
+            <div style={styles.loginForm}>
+              <div style={styles.inputGroup}>
+                <div style={styles.inputLabel}>Username</div>
+                <input
+                  style={styles.input}
+                  type="text"
+                  placeholder="Enter HR username"
+                  value={auth.username}
+                  onChange={e => setAuth(a => ({ ...a, username: e.target.value }))}
+                />
+              </div>
+              <div style={styles.inputGroup}>
+                <div style={styles.inputLabel}>Password</div>
+                <input
+                  style={styles.input}
+                  type="password"
+                  placeholder="Enter password"
+                  value={auth.password}
+                  onChange={e => setAuth(a => ({ ...a, password: e.target.value }))}
+                  onKeyDown={e => e.key === "Enter" && handleLogin()}
+                />
+              </div>
+              {auth.error && <div style={styles.loginError}>{auth.error}</div>}
+              <button style={styles.loginBtn} onClick={handleLogin}>
+                Login to Shiro HR
+              </button>
+            </div>
+            <div style={styles.loginFooter}>PixelKliQ Technologies · Internal Use Only</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.root}>
       <div style={styles.header}>
@@ -86,7 +154,12 @@ export default function ShiroHR() {
             <div style={styles.logoSub}>Intelligent Recruitment Agent · PixelKliQ</div>
           </div>
         </div>
-        <div style={styles.headerBadge}>HR Portal</div>
+        <div style={styles.headerRight}>
+          <div style={styles.headerBadge}>HR Portal</div>
+          <button style={styles.logoutBtn} onClick={() => setAuth({ username: "", password: "", loggedIn: false, error: "" })}>
+            Logout
+          </button>
+        </div>
       </div>
 
       <div style={styles.body}>
@@ -136,7 +209,7 @@ export default function ShiroHR() {
                 {resumeFiles.length === 0 ? (
                   <div style={styles.dropPrompt}>
                     <div style={styles.dropIcon}>📂</div>
-                    <div style={styles.dropText}>Drop multiple resumes at once</div>
+                    <div style={styles.dropText}>Drop multiple resumes or select folder</div>
                     <div style={styles.dropHint}>Select as many files as needed</div>
                   </div>
                 ) : (
@@ -198,20 +271,22 @@ export default function ShiroHR() {
             <div style={styles.summaryBar}>
               <div style={styles.summaryTitle}>
                 <button style={styles.backBtn} onClick={() => setResults(null)}>← Back</button>
-<button style={styles.exportBtn} onClick={async () => {
-  const res = await fetch("/api/export-excel", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(results)
-  });
-  const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "ShiroHR_Results.xlsx";
-  a.click();
-}}>⬇ Export Excel</button>
-                <span>Screening Results</span>
+                <button style={styles.exportBtn} onClick={async () => {
+                  const res = await fetch("/api/export-excel", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`)
+                    },
+                    body: JSON.stringify(results)
+                  });
+                  const blob = await res.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "ShiroHR_Results.xlsx";
+                  a.click();
+                }}>⬇ Export Excel</button>
                 <span style={styles.totalCount}>{results.candidates.length} candidates</span>
               </div>
               <div style={styles.summaryCards}>
@@ -278,13 +353,27 @@ export default function ShiroHR() {
 
 const styles = {
   root: { fontFamily: "'DM Sans', 'Segoe UI', sans-serif", background: "#0D0F14", minHeight: "100vh", color: "#E8EAF0" },
+  loginWrap: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" },
+  loginBox: { background: "#13151C", border: "1px solid #1E2130", borderRadius: 16, padding: "40px 36px", width: 360, textAlign: "center" },
+  loginLogo: { width: 56, height: 56, borderRadius: 14, background: "linear-gradient(135deg, #F5C842, #E8A020)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 26, color: "#0D0F14", margin: "0 auto 12px" },
+  loginTitle: { fontSize: 22, fontWeight: 700, marginBottom: 4 },
+  loginSub: { fontSize: 12, color: "#5A6070", marginBottom: 28 },
+  loginForm: { display: "flex", flexDirection: "column", gap: 16 },
+  inputGroup: { textAlign: "left" },
+  inputLabel: { fontSize: 12, color: "#6A7080", marginBottom: 6, fontWeight: 500 },
+  input: { width: "100%", background: "#1E2130", border: "1px solid #2A3040", borderRadius: 8, padding: "10px 14px", fontSize: 14, color: "#E8EAF0", outline: "none", boxSizing: "border-box" },
+  loginError: { background: "#FF5C5C15", border: "1px solid #FF5C5C40", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#FF5C5C" },
+  loginBtn: { background: "linear-gradient(135deg, #F5C842, #E8A020)", color: "#0D0F14", border: "none", borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", marginTop: 4 },
+  loginFooter: { fontSize: 11, color: "#3A4050", marginTop: 24 },
   header: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 32px", borderBottom: "1px solid #1E2130", background: "#0A0C10" },
   headerLeft: { display: "flex", alignItems: "center", gap: 14 },
+  headerRight: { display: "flex", alignItems: "center", gap: 10 },
   logoMark: { width: 40, height: 40, borderRadius: 10, background: "linear-gradient(135deg, #F5C842, #E8A020)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 20, color: "#0D0F14" },
   logoText: { fontSize: 18, fontWeight: 700, letterSpacing: "-0.3px" },
   logoAccent: { color: "#F5C842" },
   logoSub: { fontSize: 11, color: "#5A6070", marginTop: 2 },
   headerBadge: { fontSize: 11, padding: "4px 12px", borderRadius: 20, background: "#1E2130", color: "#8892A0", border: "1px solid #2A3040", letterSpacing: 1 },
+  logoutBtn: { fontSize: 11, padding: "4px 12px", borderRadius: 20, background: "#FF5C5C20", color: "#FF5C5C", border: "1px solid #FF5C5C40", cursor: "pointer" },
   body: { padding: "32px", maxWidth: 860, margin: "0 auto" },
   setupPanel: { display: "flex", flexDirection: "column", gap: 20 },
   card: { background: "#13151C", border: "1px solid #1E2130", borderRadius: 14, padding: "24px" },
@@ -320,12 +409,12 @@ const styles = {
   spinner: { width: 16, height: 16, border: "2px solid #0D0F1440", borderTop: "2px solid #0D0F14", borderRadius: "50%", display: "inline-block" },
   resultsPanel: {},
   summaryBar: { marginBottom: 24 },
-  summaryTitle: { display: "flex", alignItems: "center", gap: 16, marginBottom: 20, fontSize: 18, fontWeight: 700 },
+  summaryTitle: { display: "flex", alignItems: "center", gap: 12, marginBottom: 20, fontSize: 18, fontWeight: 700 },
   backBtn: { background: "#1E2130", border: "1px solid #2A3040", color: "#8892A0", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer" },
   exportBtn: { background: "#00C896", border: "none", color: "#0D0F14", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontWeight: 700 },
   totalCount: { marginLeft: "auto", fontSize: 13, color: "#5A6070", fontWeight: 400 },
   summaryCards: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 },
-  summaryCard: { background: "#13151C", border: "1px solid #1E2130", borderBottom: "2px solid", borderRadius: 12, padding: "16px", textAlign: "center", cursor: "pointer", transition: "background 0.2s" },
+  summaryCard: { background: "#13151C", border: "1px solid #1E2130", borderBottom: "2px solid", borderRadius: 12, padding: "16px", textAlign: "center", cursor: "pointer" },
   summaryIcon: { fontSize: 20, marginBottom: 6 },
   summaryCount: { fontSize: 28, fontWeight: 800 },
   summaryCat: { fontSize: 11, color: "#5A6070", marginTop: 4 },

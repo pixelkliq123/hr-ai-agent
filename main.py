@@ -1,16 +1,20 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, File, UploadFile, Form, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import json
 import os
 import re
+import secrets
 from groq import Groq
 import PyPDF2
 import docx2txt
 import io
+import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment
 
 app = FastAPI(title="Shiro AI HR", version="1.0.0")
 
@@ -23,7 +27,22 @@ app.add_middleware(
 )
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+security = HTTPBasic()
 
+# HR Credentials — change these!
+HR_USERNAME = os.environ.get("HR_USERNAME", "hr_admin")
+HR_PASSWORD = os.environ.get("HR_PASSWORD", "shiro@2026")
+
+def verify_hr(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, HR_USERNAME)
+    correct_password = secrets.compare_digest(credentials.password, HR_PASSWORD)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid HR credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 def extract_text(file_bytes: bytes, filename: str) -> str:
     ext = filename.lower().split(".")[-1]
@@ -37,7 +56,6 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
             return file_bytes.decode("utf-8", errors="ignore")
     except Exception:
         return ""
-
 
 def screen_candidate(jd_text, resume_text, filename, weights):
     prompt = f"""
@@ -86,12 +104,12 @@ Category rules:
     result["filename"] = filename
     return result
 
-
 @app.post("/api/screen")
 async def screen_resumes(
     jd_file: UploadFile = File(...),
     resume_files: list[UploadFile] = File(...),
-    weights: str = Form('{"skills":40,"experience":30,"education":15,"certifications":15}')
+    weights: str = Form('{"skills":40,"experience":30,"education":15,"certifications":15}'),
+    username: str = Depends(verify_hr)
 ):
     try:
         weights_dict = json.loads(weights)
@@ -132,14 +150,69 @@ async def screen_resumes(
             })
 
     candidates.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return {"total": len(candidates), "candidates": candidates, "jd_filename": jd_file.filename}
 
-    return {
-        "total": len(candidates),
-        "candidates": candidates,
-        "jd_filename": jd_file.filename
+@app.post("/api/export-excel")
+async def export_excel(data: dict, username: str = Depends(verify_hr)):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Screening Results"
+
+    header_fill = PatternFill(start_color="1E2130", end_color="1E2130", fill_type="solid")
+    header_font = Font(color="F5C842", bold=True)
+
+    headers = ["Name", "File", "Score", "Category", "Skills", "Experience", "Education", "Certifications", "Summary"]
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    colors_map = {
+        "Highly Recommended": "00C896",
+        "Recommended": "4A9EFF",
+        "Consider": "F5A623",
+        "Not Recommended": "FF5C5C"
     }
 
+    for row, candidate in enumerate(data.get("candidates", []), 2):
+        color = colors_map.get(candidate.get("category", ""), "FFFFFF")
+        fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+        values = [
+            candidate.get("name", ""),
+            candidate.get("filename", ""),
+            candidate.get("score", 0),
+            candidate.get("category", ""),
+            candidate.get("breakdown", {}).get("skills", 0),
+            candidate.get("breakdown", {}).get("experience", 0),
+            candidate.get("breakdown", {}).get("education", 0),
+            candidate.get("breakdown", {}).get("certifications", 0),
+            candidate.get("summary", "")
+        ]
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            if col == 4:
+                cell.fill = fill
+                cell.font = Font(bold=True)
+
+    for col in ws.columns:
+        max_length = max(len(str(cell.value or "")) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_length + 4, 50)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=ShiroHR_Results.xlsx"}
+    )
 
 @app.get("/api/health")
 def health():
     return {"status": "ok", "service": "Shiro AI HR"}
+
+@app.post("/api/verify-login")
+async def verify_login(username: str = Depends(verify_hr)):
+    return {"status": "ok", "user": username}

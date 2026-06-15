@@ -1,6 +1,8 @@
 fastapi
 uvicorn[standard]
 python-multipart
-anthropic
+groq
 PyPDF2
 docx2txt
+python-dotenv
+openpyxl

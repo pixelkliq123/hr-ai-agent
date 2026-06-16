@@ -19,6 +19,11 @@ export default function ShiroHR() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
   const [dragOver, setDragOver] = useState(null);
+  const [scheduled, setScheduled] = useState([]);
+  const [scheduleModal, setScheduleModal] = useState(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [mainTab, setMainTab] = useState("screening");
 
   const jdRef = useRef();
   const resumeRef = useRef();
@@ -29,9 +34,7 @@ export default function ShiroHR() {
     try {
       const res = await fetch("/api/verify-login", {
         method: "POST",
-        headers: {
-          "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`)
-        }
+        headers: { "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`) }
       });
       if (res.ok) {
         setAuth(a => ({ ...a, loggedIn: true, error: "" }));
@@ -44,52 +47,54 @@ export default function ShiroHR() {
   };
 
   const handleJdDrop = useCallback((e) => {
-    e.preventDefault();
-    setDragOver(null);
+    e.preventDefault(); setDragOver(null);
     const file = e.dataTransfer.files[0];
     if (file) setJdFile(file);
   }, []);
 
   const handleResumeDrop = useCallback((e) => {
-    e.preventDefault();
-    setDragOver(null);
-    const files = Array.from(e.dataTransfer.files);
-    setResumeFiles(prev => [...prev, ...files]);
+    e.preventDefault(); setDragOver(null);
+    setResumeFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
   }, []);
 
   const handleSubmit = async () => {
-    if (!jdFile || resumeFiles.length === 0) {
-      setError("Please upload a Job Description and at least one resume.");
-      return;
-    }
-    if (totalWeight !== 100) {
-      setError("Weights must add up to exactly 100%.");
-      return;
-    }
-    setError(null);
-    setLoading(true);
-
+    if (!jdFile || resumeFiles.length === 0) { setError("Please upload a JD and at least one resume."); return; }
+    if (totalWeight !== 100) { setError("Weights must add up to 100%."); return; }
+    setError(null); setLoading(true);
     const formData = new FormData();
     formData.append("jd_file", jdFile);
     resumeFiles.forEach(f => formData.append("resume_files", f));
     formData.append("weights", JSON.stringify(weights));
-
     try {
       const res = await fetch("/api/screen", {
         method: "POST",
-        headers: {
-          "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`)
-        },
+        headers: { "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`) },
         body: formData
       });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const data = await res.json();
-      setResults(data);
+      setResults(await res.json());
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSchedule = (candidate) => {
+    setScheduleModal(candidate);
+    setScheduleDate("");
+    setScheduleTime("");
+  };
+
+  const confirmSchedule = () => {
+    if (!scheduleDate || !scheduleTime) return;
+    setScheduled(prev => [...prev, {
+      ...scheduleModal,
+      interviewDate: scheduleDate,
+      interviewTime: scheduleTime,
+      scheduledAt: new Date().toLocaleString()
+    }]);
+    setScheduleModal(null);
   };
 
   const filteredResults = results?.candidates?.filter(c =>
@@ -101,7 +106,7 @@ export default function ShiroHR() {
     return acc;
   }, {});
 
-  // LOGIN SCREEN
+  // LOGIN
   if (!auth.loggedIn) {
     return (
       <div style={styles.root}>
@@ -113,29 +118,17 @@ export default function ShiroHR() {
             <div style={styles.loginForm}>
               <div style={styles.inputGroup}>
                 <div style={styles.inputLabel}>Username</div>
-                <input
-                  style={styles.input}
-                  type="text"
-                  placeholder="Enter HR username"
-                  value={auth.username}
-                  onChange={e => setAuth(a => ({ ...a, username: e.target.value }))}
-                />
+                <input style={styles.input} type="text" placeholder="Enter HR username"
+                  value={auth.username} onChange={e => setAuth(a => ({ ...a, username: e.target.value }))} />
               </div>
               <div style={styles.inputGroup}>
                 <div style={styles.inputLabel}>Password</div>
-                <input
-                  style={styles.input}
-                  type="password"
-                  placeholder="Enter password"
-                  value={auth.password}
-                  onChange={e => setAuth(a => ({ ...a, password: e.target.value }))}
-                  onKeyDown={e => e.key === "Enter" && handleLogin()}
-                />
+                <input style={styles.input} type="password" placeholder="Enter password"
+                  value={auth.password} onChange={e => setAuth(a => ({ ...a, password: e.target.value }))}
+                  onKeyDown={e => e.key === "Enter" && handleLogin()} />
               </div>
               {auth.error && <div style={styles.loginError}>{auth.error}</div>}
-              <button style={styles.loginBtn} onClick={handleLogin}>
-                Login to Shiro HR
-              </button>
+              <button style={styles.loginBtn} onClick={handleLogin}>Login to Shiro HR</button>
             </div>
             <div style={styles.loginFooter}>PixelKliQ Technologies · Internal Use Only</div>
           </div>
@@ -146,6 +139,7 @@ export default function ShiroHR() {
 
   return (
     <div style={styles.root}>
+      {/* HEADER */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           <div style={styles.logoMark}>S</div>
@@ -155,196 +149,243 @@ export default function ShiroHR() {
           </div>
         </div>
         <div style={styles.headerRight}>
-          <div style={styles.headerBadge}>HR Portal</div>
-          <button style={styles.logoutBtn} onClick={() => setAuth({ username: "", password: "", loggedIn: false, error: "" })}>
-            Logout
+          <button style={{ ...styles.mainTabBtn, ...(mainTab === "screening" ? styles.mainTabActive : {}) }}
+            onClick={() => setMainTab("screening")}>🔍 Screening</button>
+          <button style={{ ...styles.mainTabBtn, ...(mainTab === "scheduled" ? styles.mainTabActive : {}), position: "relative" }}
+            onClick={() => setMainTab("scheduled")}>
+            📅 Interviews
+            {scheduled.length > 0 && <span style={styles.badgeCount}>{scheduled.length}</span>}
           </button>
+          <div style={styles.headerBadge}>HR Portal</div>
+          <button style={styles.logoutBtn} onClick={() => setAuth({ username: "", password: "", loggedIn: false, error: "" })}>Logout</button>
         </div>
       </div>
 
       <div style={styles.body}>
-        {!results ? (
-          <div style={styles.setupPanel}>
-            <div style={styles.card}>
-              <div style={styles.stepLabel}><span style={styles.stepNum}>01</span> Job Description</div>
-              <div
-                style={{ ...styles.dropZone, ...(dragOver === "jd" ? styles.dropZoneActive : {}) }}
-                onDragOver={e => { e.preventDefault(); setDragOver("jd"); }}
-                onDragLeave={() => setDragOver(null)}
-                onDrop={handleJdDrop}
-                onClick={() => jdRef.current.click()}
-              >
-                <input ref={jdRef} type="file" accept=".pdf,.doc,.docx" style={{ display: "none" }}
-                  onChange={e => setJdFile(e.target.files[0])} />
-                {jdFile ? (
-                  <div style={styles.fileChip}>
-                    <span style={styles.fileIcon}>📄</span>
-                    <span style={styles.fileName}>{jdFile.name}</span>
-                    <button style={styles.removeBtn} onClick={e => { e.stopPropagation(); setJdFile(null); }}>×</button>
-                  </div>
-                ) : (
-                  <div style={styles.dropPrompt}>
-                    <div style={styles.dropIcon}>⬆</div>
-                    <div style={styles.dropText}>Drop JD file or click to browse</div>
-                    <div style={styles.dropHint}>PDF, DOC, DOCX supported</div>
-                  </div>
-                )}
+
+        {/* SCHEDULE MODAL */}
+        {scheduleModal && (
+          <div style={styles.modalOverlay}>
+            <div style={styles.modal}>
+              <div style={styles.modalTitle}>📅 Schedule Interview</div>
+              <div style={styles.modalName}>{scheduleModal.name || scheduleModal.filename}</div>
+              <div style={styles.modalCategory}>{scheduleModal.category} · {scheduleModal.score}% match</div>
+              <div style={styles.inputGroup}>
+                <div style={styles.inputLabel}>Interview Date</div>
+                <input style={styles.input} type="date" value={scheduleDate}
+                  onChange={e => setScheduleDate(e.target.value)} />
+              </div>
+              <div style={styles.inputGroup}>
+                <div style={styles.inputLabel}>Interview Time</div>
+                <input style={styles.input} type="time" value={scheduleTime}
+                  onChange={e => setScheduleTime(e.target.value)} />
+              </div>
+              <div style={styles.modalBtns}>
+                <button style={styles.cancelBtn} onClick={() => setScheduleModal(null)}>Cancel</button>
+                <button style={styles.confirmBtn} onClick={confirmSchedule}>✅ Confirm Schedule</button>
               </div>
             </div>
-
-            <div style={styles.card}>
-              <div style={styles.stepLabel}>
-                <span style={styles.stepNum}>02</span> Candidate Resumes
-                {resumeFiles.length > 0 && <span style={styles.countBadge}>{resumeFiles.length} files</span>}
-              </div>
-              <div
-                style={{ ...styles.dropZone, minHeight: 100, ...(dragOver === "resume" ? styles.dropZoneActive : {}) }}
-                onDragOver={e => { e.preventDefault(); setDragOver("resume"); }}
-                onDragLeave={() => setDragOver(null)}
-                onDrop={handleResumeDrop}
-                onClick={() => resumeRef.current.click()}
-              >
-                <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" multiple webkitdirectory="" style={{ display: "none" }}
-                  onChange={e => setResumeFiles(prev => [...prev, ...Array.from(e.target.files)])} />
-                {resumeFiles.length === 0 ? (
-                  <div style={styles.dropPrompt}>
-                    <div style={styles.dropIcon}>📂</div>
-                    <div style={styles.dropText}>Drop multiple resumes or select folder</div>
-                    <div style={styles.dropHint}>Select as many files as needed</div>
-                  </div>
-                ) : (
-                  <div style={styles.fileGrid}>
-                    {resumeFiles.map((f, i) => (
-                      <div key={i} style={styles.fileChipSmall}>
-                        <span style={styles.fileIconSm}>📄</span>
-                        <span style={styles.fileNameSm}>{f.name.length > 20 ? f.name.slice(0, 18) + "…" : f.name}</span>
-                        <button style={styles.removeBtn} onClick={e => {
-                          e.stopPropagation();
-                          setResumeFiles(prev => prev.filter((_, j) => j !== i));
-                        }}>×</button>
-                      </div>
-                    ))}
-                    <div style={styles.addMoreChip} onClick={e => { e.stopPropagation(); resumeRef.current.click(); }}>
-                      + Add more
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div style={styles.card}>
-              <div style={styles.stepLabel}><span style={styles.stepNum}>03</span> Scoring Weights
-                <span style={{ ...styles.countBadge, background: totalWeight === 100 ? "#00C89620" : "#FF5C5C20", color: totalWeight === 100 ? "#00C896" : "#FF5C5C" }}>
-                  {totalWeight}% / 100%
-                </span>
-              </div>
-              <div style={styles.weightsGrid}>
-                {Object.entries(weights).map(([key, val]) => (
-                  <div key={key} style={styles.weightItem}>
-                    <div style={styles.weightLabel}>{key.charAt(0).toUpperCase() + key.slice(1)}</div>
-                    <div style={styles.weightRow}>
-                      <input type="range" min={0} max={100} value={val}
-                        onChange={e => setWeights(w => ({ ...w, [key]: Number(e.target.value) }))}
-                        style={styles.slider} />
-                      <div style={styles.weightVal}>{val}%</div>
-                    </div>
-                    <div style={styles.weightBar}>
-                      <div style={{ ...styles.weightBarFill, width: `${val}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {error && <div style={styles.errorBox}>{error}</div>}
-
-            <button style={{ ...styles.runBtn, opacity: loading ? 0.7 : 1 }} onClick={handleSubmit} disabled={loading}>
-              {loading ? (
-                <span style={styles.loadingRow}><span style={styles.spinner} />Screening Candidates…</span>
-              ) : (
-                "▶  Run AI Screening"
-              )}
-            </button>
           </div>
-        ) : (
-          <div style={styles.resultsPanel}>
-            <div style={styles.summaryBar}>
-              <div style={styles.summaryTitle}>
-                <button style={styles.backBtn} onClick={() => setResults(null)}>← Back</button>
-                <button style={styles.exportBtn} onClick={async () => {
-                  const res = await fetch("/api/export-excel", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`)
-                    },
-                    body: JSON.stringify(results)
-                  });
-                  const blob = await res.blob();
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = "ShiroHR_Results.xlsx";
-                  a.click();
-                }}>⬇ Export Excel</button>
-                <span style={styles.totalCount}>{results.candidates.length} candidates</span>
+        )}
+
+        {/* SCHEDULED INTERVIEWS TAB */}
+        {mainTab === "scheduled" && (
+          <div>
+            <div style={styles.pageTitle}>📅 Scheduled Interviews <span style={styles.totalCount}>{scheduled.length} interviews</span></div>
+            {scheduled.length === 0 ? (
+              <div style={styles.emptyState}>
+                <div style={styles.emptyIcon}>📅</div>
+                <div style={styles.emptyText}>No interviews scheduled yet</div>
+                <div style={styles.emptyHint}>Go to Screening tab and schedule interviews from candidate cards</div>
               </div>
-              <div style={styles.summaryCards}>
-                {Object.entries(categoryConfig).map(([cat, cfg]) => (
-                  <div key={cat} style={{ ...styles.summaryCard, borderColor: cfg.color }}
-                    onClick={() => setActiveTab(cat === activeTab ? "all" : cat)}>
-                    <div style={{ ...styles.summaryIcon, color: cfg.color }}>{cfg.icon}</div>
-                    <div style={{ ...styles.summaryCount, color: cfg.color }}>{categoryCounts?.[cat] || 0}</div>
-                    <div style={styles.summaryCat}>{cat}</div>
+            ) : (
+              <div style={styles.scheduledList}>
+                {scheduled.map((s, i) => (
+                  <div key={i} style={styles.scheduledCard}>
+                    <div style={styles.scheduledHeader}>
+                      <div style={styles.scheduledName}>{s.name || s.filename}</div>
+                      <div style={{ ...styles.categoryBadge, background: categoryConfig[s.category]?.bg, color: categoryConfig[s.category]?.color }}>
+                        {s.category}
+                      </div>
+                    </div>
+                    <div style={styles.scheduledDetails}>
+                      <div style={styles.scheduledDetail}>📅 <b>{s.interviewDate}</b></div>
+                      <div style={styles.scheduledDetail}>⏰ <b>{s.interviewTime}</b></div>
+                      <div style={styles.scheduledDetail}>🎯 Match: <b>{s.score}%</b></div>
+                    </div>
+                    <div style={styles.scheduledAt}>Scheduled at: {s.scheduledAt}</div>
+                    <button style={styles.removeScheduleBtn} onClick={() => setScheduled(prev => prev.filter((_, j) => j !== i))}>
+                      Remove
+                    </button>
                   </div>
                 ))}
               </div>
-            </div>
+            )}
+          </div>
+        )}
 
-            <div style={styles.tabs}>
-              {["all", ...Object.keys(categoryConfig)].map(tab => (
-                <button key={tab} style={{ ...styles.tab, ...(activeTab === tab ? styles.tabActive : {}) }}
-                  onClick={() => setActiveTab(tab)}>
-                  {tab === "all" ? "All Candidates" : tab}
-                  {tab !== "all" && <span style={{ ...styles.tabCount, color: categoryConfig[tab].color }}>
-                    {categoryCounts?.[tab] || 0}
-                  </span>}
-                </button>
-              ))}
-            </div>
+        {/* SCREENING TAB */}
+        {mainTab === "screening" && (
+          !results ? (
+            <div style={styles.setupPanel}>
+              <div style={styles.card}>
+                <div style={styles.stepLabel}><span style={styles.stepNum}>01</span> Job Description</div>
+                <div style={{ ...styles.dropZone, ...(dragOver === "jd" ? styles.dropZoneActive : {}) }}
+                  onDragOver={e => { e.preventDefault(); setDragOver("jd"); }}
+                  onDragLeave={() => setDragOver(null)} onDrop={handleJdDrop}
+                  onClick={() => jdRef.current.click()}>
+                  <input ref={jdRef} type="file" accept=".pdf,.doc,.docx" style={{ display: "none" }}
+                    onChange={e => setJdFile(e.target.files[0])} />
+                  {jdFile ? (
+                    <div style={styles.fileChip}>
+                      <span style={styles.fileIcon}>📄</span>
+                      <span style={styles.fileName}>{jdFile.name}</span>
+                      <button style={styles.removeBtn} onClick={e => { e.stopPropagation(); setJdFile(null); }}>×</button>
+                    </div>
+                  ) : (
+                    <div style={styles.dropPrompt}>
+                      <div style={styles.dropIcon}>⬆</div>
+                      <div style={styles.dropText}>Drop JD file or click to browse</div>
+                      <div style={styles.dropHint}>PDF, DOC, DOCX supported</div>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-            <div style={styles.candidateList}>
-              {filteredResults?.map((c, i) => {
-                const cfg = categoryConfig[c.category];
-                return (
-                  <div key={i} style={{ ...styles.candidateCard, borderLeft: `3px solid ${cfg.color}` }}>
-                    <div style={styles.candidateHeader}>
-                      <div style={styles.candidateName}>{c.name || c.filename}</div>
-                      <div style={{ ...styles.categoryBadge, background: cfg.bg, color: cfg.color }}>
-                        {cfg.icon} {c.category}
-                      </div>
+              <div style={styles.card}>
+                <div style={styles.stepLabel}>
+                  <span style={styles.stepNum}>02</span> Candidate Resumes
+                  {resumeFiles.length > 0 && <span style={styles.countBadge}>{resumeFiles.length} files</span>}
+                </div>
+                <div style={{ ...styles.dropZone, minHeight: 100, ...(dragOver === "resume" ? styles.dropZoneActive : {}) }}
+                  onDragOver={e => { e.preventDefault(); setDragOver("resume"); }}
+                  onDragLeave={() => setDragOver(null)} onDrop={handleResumeDrop}
+                  onClick={() => resumeRef.current.click()}>
+                  <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" multiple webkitdirectory=""
+                    style={{ display: "none" }} onChange={e => setResumeFiles(prev => [...prev, ...Array.from(e.target.files)])} />
+                  {resumeFiles.length === 0 ? (
+                    <div style={styles.dropPrompt}>
+                      <div style={styles.dropIcon}>📂</div>
+                      <div style={styles.dropText}>Drop multiple resumes or select folder</div>
+                      <div style={styles.dropHint}>Select as many files as needed</div>
                     </div>
-                    <div style={styles.scoreBar}>
-                      <div style={styles.scoreLabel}>Match Score</div>
-                      <div style={styles.scoreTrack}>
-                        <div style={{ ...styles.scoreFill, width: `${c.score}%`, background: cfg.color }} />
-                      </div>
-                      <div style={{ ...styles.scoreNum, color: cfg.color }}>{c.score}%</div>
-                    </div>
-                    <div style={styles.breakdown}>
-                      {Object.entries(c.breakdown || {}).map(([k, v]) => (
-                        <div key={k} style={styles.breakdownItem}>
-                          <span style={styles.breakdownKey}>{k}</span>
-                          <span style={styles.breakdownVal}>{v}%</span>
+                  ) : (
+                    <div style={styles.fileGrid}>
+                      {resumeFiles.map((f, i) => (
+                        <div key={i} style={styles.fileChipSmall}>
+                          <span style={styles.fileIconSm}>📄</span>
+                          <span style={styles.fileNameSm}>{f.name.length > 20 ? f.name.slice(0, 18) + "…" : f.name}</span>
+                          <button style={styles.removeBtn} onClick={e => { e.stopPropagation(); setResumeFiles(prev => prev.filter((_, j) => j !== i)); }}>×</button>
                         </div>
                       ))}
+                      <div style={styles.addMoreChip} onClick={e => { e.stopPropagation(); resumeRef.current.click(); }}>+ Add more</div>
                     </div>
-                    {c.summary && <div style={styles.summary}>{c.summary}</div>}
-                  </div>
-                );
-              })}
+                  )}
+                </div>
+              </div>
+
+              <div style={styles.card}>
+                <div style={styles.stepLabel}><span style={styles.stepNum}>03</span> Scoring Weights
+                  <span style={{ ...styles.countBadge, background: totalWeight === 100 ? "#00C89620" : "#FF5C5C20", color: totalWeight === 100 ? "#00C896" : "#FF5C5C" }}>
+                    {totalWeight}% / 100%
+                  </span>
+                </div>
+                <div style={styles.weightsGrid}>
+                  {Object.entries(weights).map(([key, val]) => (
+                    <div key={key} style={styles.weightItem}>
+                      <div style={styles.weightLabel}>{key.charAt(0).toUpperCase() + key.slice(1)}</div>
+                      <div style={styles.weightRow}>
+                        <input type="range" min={0} max={100} value={val}
+                          onChange={e => setWeights(w => ({ ...w, [key]: Number(e.target.value) }))} style={styles.slider} />
+                        <div style={styles.weightVal}>{val}%</div>
+                      </div>
+                      <div style={styles.weightBar}><div style={{ ...styles.weightBarFill, width: `${val}%` }} /></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {error && <div style={styles.errorBox}>{error}</div>}
+              <button style={{ ...styles.runBtn, opacity: loading ? 0.7 : 1 }} onClick={handleSubmit} disabled={loading}>
+                {loading ? <span style={styles.loadingRow}><span style={styles.spinner} />Screening Candidates…</span> : "▶  Run AI Screening"}
+              </button>
             </div>
-          </div>
+          ) : (
+            <div style={styles.resultsPanel}>
+              <div style={styles.summaryBar}>
+                <div style={styles.summaryTitle}>
+                  <button style={styles.backBtn} onClick={() => setResults(null)}>← Back</button>
+                  <button style={styles.exportBtn} onClick={async () => {
+                    const res = await fetch("/api/export-excel", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`) },
+                      body: JSON.stringify(results)
+                    });
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = "ShiroHR_Results.xlsx"; a.click();
+                  }}>⬇ Export Excel</button>
+                  <span style={styles.totalCount}>{results.candidates.length} candidates</span>
+                </div>
+                <div style={styles.summaryCards}>
+                  {Object.entries(categoryConfig).map(([cat, cfg]) => (
+                    <div key={cat} style={{ ...styles.summaryCard, borderColor: cfg.color }}
+                      onClick={() => setActiveTab(cat === activeTab ? "all" : cat)}>
+                      <div style={{ ...styles.summaryIcon, color: cfg.color }}>{cfg.icon}</div>
+                      <div style={{ ...styles.summaryCount, color: cfg.color }}>{categoryCounts?.[cat] || 0}</div>
+                      <div style={styles.summaryCat}>{cat}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={styles.tabs}>
+                {["all", ...Object.keys(categoryConfig)].map(tab => (
+                  <button key={tab} style={{ ...styles.tab, ...(activeTab === tab ? styles.tabActive : {}) }}
+                    onClick={() => setActiveTab(tab)}>
+                    {tab === "all" ? "All Candidates" : tab}
+                    {tab !== "all" && <span style={{ ...styles.tabCount, color: categoryConfig[tab].color }}>{categoryCounts?.[tab] || 0}</span>}
+                  </button>
+                ))}
+              </div>
+
+              <div style={styles.candidateList}>
+                {filteredResults?.map((c, i) => {
+                  const cfg = categoryConfig[c.category];
+                  const isScheduled = scheduled.some(s => s.filename === c.filename);
+                  return (
+                    <div key={i} style={{ ...styles.candidateCard, borderLeft: `3px solid ${cfg.color}` }}>
+                      <div style={styles.candidateHeader}>
+                        <div style={styles.candidateName}>{c.name || c.filename}</div>
+                        <div style={styles.candidateActions}>
+                          <div style={{ ...styles.categoryBadge, background: cfg.bg, color: cfg.color }}>{cfg.icon} {c.category}</div>
+                          <button style={{ ...styles.scheduleBtn, background: isScheduled ? "#00C89620" : "#4A9EFF20", color: isScheduled ? "#00C896" : "#4A9EFF" }}
+                            onClick={() => !isScheduled && handleSchedule(c)}>
+                            {isScheduled ? "✅ Scheduled" : "📅 Schedule"}
+                          </button>
+                        </div>
+                      </div>
+                      <div style={styles.scoreBar}>
+                        <div style={styles.scoreLabel}>Match Score</div>
+                        <div style={styles.scoreTrack}><div style={{ ...styles.scoreFill, width: `${c.score}%`, background: cfg.color }} /></div>
+                        <div style={{ ...styles.scoreNum, color: cfg.color }}>{c.score}%</div>
+                      </div>
+                      <div style={styles.breakdown}>
+                        {Object.entries(c.breakdown || {}).map(([k, v]) => (
+                          <div key={k} style={styles.breakdownItem}>
+                            <span style={styles.breakdownKey}>{k}</span>
+                            <span style={styles.breakdownVal}>{v}%</span>
+                          </div>
+                        ))}
+                      </div>
+                      {c.summary && <div style={styles.summary}>{c.summary}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )
         )}
       </div>
     </div>
@@ -359,25 +400,50 @@ const styles = {
   loginTitle: { fontSize: 22, fontWeight: 700, marginBottom: 4 },
   loginSub: { fontSize: 12, color: "#5A6070", marginBottom: 28 },
   loginForm: { display: "flex", flexDirection: "column", gap: 16 },
-  inputGroup: { textAlign: "left" },
+  inputGroup: { textAlign: "left", marginBottom: 8 },
   inputLabel: { fontSize: 12, color: "#6A7080", marginBottom: 6, fontWeight: 500 },
   input: { width: "100%", background: "#1E2130", border: "1px solid #2A3040", borderRadius: 8, padding: "10px 14px", fontSize: 14, color: "#E8EAF0", outline: "none", boxSizing: "border-box" },
   loginError: { background: "#FF5C5C15", border: "1px solid #FF5C5C40", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#FF5C5C" },
   loginBtn: { background: "linear-gradient(135deg, #F5C842, #E8A020)", color: "#0D0F14", border: "none", borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", marginTop: 4 },
   loginFooter: { fontSize: 11, color: "#3A4050", marginTop: 24 },
-  header: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 32px", borderBottom: "1px solid #1E2130", background: "#0A0C10" },
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 32px", borderBottom: "1px solid #1E2130", background: "#0A0C10" },
   headerLeft: { display: "flex", alignItems: "center", gap: 14 },
   headerRight: { display: "flex", alignItems: "center", gap: 10 },
   logoMark: { width: 40, height: 40, borderRadius: 10, background: "linear-gradient(135deg, #F5C842, #E8A020)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 20, color: "#0D0F14" },
-  logoText: { fontSize: 18, fontWeight: 700, letterSpacing: "-0.3px" },
+  logoText: { fontSize: 18, fontWeight: 700 },
   logoAccent: { color: "#F5C842" },
   logoSub: { fontSize: 11, color: "#5A6070", marginTop: 2 },
-  headerBadge: { fontSize: 11, padding: "4px 12px", borderRadius: 20, background: "#1E2130", color: "#8892A0", border: "1px solid #2A3040", letterSpacing: 1 },
+  mainTabBtn: { background: "#1E2130", border: "1px solid #2A3040", color: "#6A7080", borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer", position: "relative" },
+  mainTabActive: { background: "#F5C84220", color: "#F5C842", border: "1px solid #F5C84240" },
+  badgeCount: { position: "absolute", top: -6, right: -6, background: "#FF5C5C", color: "white", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 },
+  headerBadge: { fontSize: 11, padding: "4px 12px", borderRadius: 20, background: "#1E2130", color: "#8892A0", border: "1px solid #2A3040" },
   logoutBtn: { fontSize: 11, padding: "4px 12px", borderRadius: 20, background: "#FF5C5C20", color: "#FF5C5C", border: "1px solid #FF5C5C40", cursor: "pointer" },
   body: { padding: "32px", maxWidth: 860, margin: "0 auto" },
+  pageTitle: { fontSize: 20, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 12 },
+  totalCount: { marginLeft: "auto", fontSize: 13, color: "#5A6070", fontWeight: 400 },
+  emptyState: { textAlign: "center", padding: "60px 20px" },
+  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyText: { fontSize: 16, color: "#6A7080", marginBottom: 8 },
+  emptyHint: { fontSize: 13, color: "#3A4050" },
+  scheduledList: { display: "flex", flexDirection: "column", gap: 12 },
+  scheduledCard: { background: "#13151C", border: "1px solid #1E2130", borderLeft: "3px solid #4A9EFF", borderRadius: 12, padding: "20px 24px" },
+  scheduledHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  scheduledName: { fontSize: 15, fontWeight: 600 },
+  scheduledDetails: { display: "flex", gap: 20, marginBottom: 8 },
+  scheduledDetail: { fontSize: 13, color: "#8892A0" },
+  scheduledAt: { fontSize: 11, color: "#3A4050", marginBottom: 12 },
+  removeScheduleBtn: { background: "#FF5C5C20", border: "1px solid #FF5C5C40", color: "#FF5C5C", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer" },
+  modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#00000080", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
+  modal: { background: "#13151C", border: "1px solid #1E2130", borderRadius: 16, padding: "32px", width: 380 },
+  modalTitle: { fontSize: 18, fontWeight: 700, marginBottom: 12 },
+  modalName: { fontSize: 15, fontWeight: 600, color: "#E8EAF0", marginBottom: 4 },
+  modalCategory: { fontSize: 12, color: "#5A6070", marginBottom: 20 },
+  modalBtns: { display: "flex", gap: 10, marginTop: 20 },
+  cancelBtn: { flex: 1, background: "#1E2130", border: "1px solid #2A3040", color: "#8892A0", borderRadius: 8, padding: "10px", fontSize: 13, cursor: "pointer" },
+  confirmBtn: { flex: 2, background: "linear-gradient(135deg, #F5C842, #E8A020)", color: "#0D0F14", border: "none", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
   setupPanel: { display: "flex", flexDirection: "column", gap: 20 },
   card: { background: "#13151C", border: "1px solid #1E2130", borderRadius: 14, padding: "24px" },
-  stepLabel: { fontSize: 13, fontWeight: 600, color: "#8892A0", marginBottom: 16, display: "flex", alignItems: "center", gap: 10, letterSpacing: 0.5 },
+  stepLabel: { fontSize: 13, fontWeight: 600, color: "#8892A0", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 },
   stepNum: { background: "#F5C84220", color: "#F5C842", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700 },
   countBadge: { background: "#4A9EFF20", color: "#4A9EFF", borderRadius: 20, padding: "2px 10px", fontSize: 11 },
   dropZone: { border: "1.5px dashed #2A3040", borderRadius: 10, padding: 28, cursor: "pointer", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 80 },
@@ -404,7 +470,7 @@ const styles = {
   weightBar: { height: 3, background: "#1E2130", borderRadius: 2 },
   weightBarFill: { height: "100%", background: "#F5C842", borderRadius: 2, transition: "width 0.2s" },
   errorBox: { background: "#FF5C5C15", border: "1px solid #FF5C5C40", borderRadius: 10, padding: "12px 16px", fontSize: 13, color: "#FF5C5C" },
-  runBtn: { background: "linear-gradient(135deg, #F5C842, #E8A020)", color: "#0D0F14", border: "none", borderRadius: 12, padding: "16px 32px", fontSize: 15, fontWeight: 700, cursor: "pointer", letterSpacing: 0.3 },
+  runBtn: { background: "linear-gradient(135deg, #F5C842, #E8A020)", color: "#0D0F14", border: "none", borderRadius: 12, padding: "16px 32px", fontSize: 15, fontWeight: 700, cursor: "pointer" },
   loadingRow: { display: "flex", alignItems: "center", gap: 10 },
   spinner: { width: 16, height: 16, border: "2px solid #0D0F1440", borderTop: "2px solid #0D0F14", borderRadius: "50%", display: "inline-block" },
   resultsPanel: {},
@@ -412,7 +478,6 @@ const styles = {
   summaryTitle: { display: "flex", alignItems: "center", gap: 12, marginBottom: 20, fontSize: 18, fontWeight: 700 },
   backBtn: { background: "#1E2130", border: "1px solid #2A3040", color: "#8892A0", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer" },
   exportBtn: { background: "#00C896", border: "none", color: "#0D0F14", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontWeight: 700 },
-  totalCount: { marginLeft: "auto", fontSize: 13, color: "#5A6070", fontWeight: 400 },
   summaryCards: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 },
   summaryCard: { background: "#13151C", border: "1px solid #1E2130", borderBottom: "2px solid", borderRadius: 12, padding: "16px", textAlign: "center", cursor: "pointer" },
   summaryIcon: { fontSize: 20, marginBottom: 6 },
@@ -426,7 +491,9 @@ const styles = {
   candidateCard: { background: "#13151C", border: "1px solid #1E2130", borderRadius: 12, padding: "20px 24px" },
   candidateHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
   candidateName: { fontSize: 15, fontWeight: 600 },
+  candidateActions: { display: "flex", alignItems: "center", gap: 8 },
   categoryBadge: { fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 20 },
+  scheduleBtn: { fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 20, border: "none", cursor: "pointer" },
   scoreBar: { display: "flex", alignItems: "center", gap: 12, marginBottom: 12 },
   scoreLabel: { fontSize: 11, color: "#5A6070", minWidth: 80 },
   scoreTrack: { flex: 1, height: 6, background: "#1E2130", borderRadius: 3, overflow: "hidden" },

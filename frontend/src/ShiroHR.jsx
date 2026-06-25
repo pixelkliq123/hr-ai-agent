@@ -323,7 +323,7 @@ export default function ShiroHR() {
 
               <div style={styles.candidateList}>
                 {filteredResults?.map((c, i) => {
-                  const cfg = categoryConfig[c.category];
+                  const cfg = categoryConfig[c.category] || { color: "#8892A0", bg: "#8892A015", icon: "?" };
                   const isScheduled = scheduled.some(s => s.filename === c.filename);
                   return (
                     <div key={i} style={{ ...styles.candidateCard, borderLeft: `3px solid ${cfg.color}` }}>

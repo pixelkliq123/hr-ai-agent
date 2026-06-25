@@ -9,7 +9,7 @@ import json
 import os
 import re
 import secrets
-from groq import Groq
+import httpx
 import PyPDF2
 import docx2txt
 import io
@@ -26,16 +26,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 security = HTTPBasic()
-
-# HR Credentials — change these!
 HR_USERNAME = os.environ.get("HR_USERNAME", "hr_admin")
 HR_PASSWORD = os.environ.get("HR_PASSWORD", "shiro@2026")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 def verify_hr(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_username = secrets.compare_digest(credentials.username, HR_USERNAME)
-    correct_password = secrets.compare_digest(credentials.password, HR_PASSWORD)
+    correct_username = secrets.compare_digest(credentials.username.strip(), HR_USERNAME.strip())
+    correct_password = secrets.compare_digest(credentials.password.strip(), HR_PASSWORD.strip())
     if not (correct_username and correct_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -57,7 +55,7 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
     except Exception:
         return ""
 
-def screen_candidate(jd_text, resume_text, filename, weights):
+async def screen_candidate(jd_text, resume_text, filename, weights):
     prompt = f"""
 You are an expert HR recruiter AI. Evaluate this resume against the job description.
 
@@ -93,12 +91,23 @@ Category rules:
 - Consider: score >= 40
 - Not Recommended: score < 40
 """
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-    )
-    raw = response.choices[0].message.content.strip()
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://shiro-front.onrender.com",
+                "X-Title": "Shiro AI HR"
+            },
+            json={
+                "model": "meta-llama/llama-3.3-70b-instruct:free",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3
+            }
+        )
+    data = response.json()
+    raw = data["choices"][0]["message"]["content"].strip()
     raw = re.sub(r"```json|```", "", raw).strip()
     result = json.loads(raw)
     result["filename"] = filename
@@ -137,7 +146,7 @@ async def screen_resumes(
             })
             continue
         try:
-            result = screen_candidate(jd_text, resume_text, resume.filename, weights_dict)
+            result = await screen_candidate(jd_text, resume_text, resume.filename, weights_dict)
             candidates.append(result)
         except Exception as e:
             candidates.append({
@@ -157,24 +166,20 @@ async def export_excel(data: dict, username: str = Depends(verify_hr)):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Screening Results"
-
     header_fill = PatternFill(start_color="1E2130", end_color="1E2130", fill_type="solid")
     header_font = Font(color="F5C842", bold=True)
-
     headers = ["Name", "File", "Score", "Category", "Skills", "Experience", "Education", "Certifications", "Summary"]
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
-
     colors_map = {
         "Highly Recommended": "00C896",
         "Recommended": "4A9EFF",
         "Consider": "F5A623",
         "Not Recommended": "FF5C5C"
     }
-
     for row, candidate in enumerate(data.get("candidates", []), 2):
         color = colors_map.get(candidate.get("category", ""), "FFFFFF")
         fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
@@ -194,15 +199,12 @@ async def export_excel(data: dict, username: str = Depends(verify_hr)):
             if col == 4:
                 cell.fill = fill
                 cell.font = Font(bold=True)
-
     for col in ws.columns:
         max_length = max(len(str(cell.value or "")) for cell in col)
         ws.column_dimensions[col[0].column_letter].width = min(max_length + 4, 50)
-
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
-
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

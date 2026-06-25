@@ -107,7 +107,7 @@ Category rules:
             }
         )
     data = response.json()
-    raw = data["choices"][0]["message"]["content"].strip()
+    raw = data.get("choices", [{}])[0].get("message", {}).get("content", "{}").strip()s
     raw = re.sub(r"```json|```", "", raw).strip()
     result = json.loads(raw)
     result["filename"] = filename

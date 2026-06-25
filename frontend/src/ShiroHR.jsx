@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 
+const API = "https://hr-ai-agent-back.onrender.com";
 const WEIGHTS_DEFAULT = { skills: 40, experience: 30, education: 15, certifications: 15 };
 
 const categoryConfig = {
@@ -32,9 +33,12 @@ export default function ShiroHR() {
 
   const handleLogin = async () => {
     try {
-      const res = await fetch("/api/verify-login", {
+      const res = await fetch(`${API}/api/verify-login`, {
         method: "POST",
-        headers: { "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`) }
+        headers: {
+          "Authorization": "Basic " + btoa(`${auth.username.trim()}:${auth.password.trim()}`),
+          "Content-Type": "application/json"
+        }
       });
       if (res.ok) {
         setAuth(a => ({ ...a, loggedIn: true, error: "" }));
@@ -66,9 +70,9 @@ export default function ShiroHR() {
     resumeFiles.forEach(f => formData.append("resume_files", f));
     formData.append("weights", JSON.stringify(weights));
     try {
-      const res = await fetch("/api/screen", {
+      const res = await fetch(`${API}/api/screen`, {
         method: "POST",
-        headers: { "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`) },
+        headers: { "Authorization": "Basic " + btoa(`${auth.username.trim()}:${auth.password.trim()}`) },
         body: formData
       });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -80,33 +84,17 @@ export default function ShiroHR() {
     }
   };
 
-  const handleSchedule = (candidate) => {
-    setScheduleModal(candidate);
-    setScheduleDate("");
-    setScheduleTime("");
-  };
+  const handleSchedule = (candidate) => { setScheduleModal(candidate); setScheduleDate(""); setScheduleTime(""); };
 
   const confirmSchedule = () => {
     if (!scheduleDate || !scheduleTime) return;
-    setScheduled(prev => [...prev, {
-      ...scheduleModal,
-      interviewDate: scheduleDate,
-      interviewTime: scheduleTime,
-      scheduledAt: new Date().toLocaleString()
-    }]);
+    setScheduled(prev => [...prev, { ...scheduleModal, interviewDate: scheduleDate, interviewTime: scheduleTime, scheduledAt: new Date().toLocaleString() }]);
     setScheduleModal(null);
   };
 
-  const filteredResults = results?.candidates?.filter(c =>
-    activeTab === "all" ? true : c.category === activeTab
-  );
+  const filteredResults = results?.candidates?.filter(c => activeTab === "all" ? true : c.category === activeTab);
+  const categoryCounts = results?.candidates?.reduce((acc, c) => { acc[c.category] = (acc[c.category] || 0) + 1; return acc; }, {});
 
-  const categoryCounts = results?.candidates?.reduce((acc, c) => {
-    acc[c.category] = (acc[c.category] || 0) + 1;
-    return acc;
-  }, {});
-
-  // LOGIN
   if (!auth.loggedIn) {
     return (
       <div style={styles.root}>
@@ -139,7 +127,6 @@ export default function ShiroHR() {
 
   return (
     <div style={styles.root}>
-      {/* HEADER */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           <div style={styles.logoMark}>S</div>
@@ -149,10 +136,8 @@ export default function ShiroHR() {
           </div>
         </div>
         <div style={styles.headerRight}>
-          <button style={{ ...styles.mainTabBtn, ...(mainTab === "screening" ? styles.mainTabActive : {}) }}
-            onClick={() => setMainTab("screening")}>🔍 Screening</button>
-          <button style={{ ...styles.mainTabBtn, ...(mainTab === "scheduled" ? styles.mainTabActive : {}), position: "relative" }}
-            onClick={() => setMainTab("scheduled")}>
+          <button style={{ ...styles.mainTabBtn, ...(mainTab === "screening" ? styles.mainTabActive : {}) }} onClick={() => setMainTab("screening")}>🔍 Screening</button>
+          <button style={{ ...styles.mainTabBtn, ...(mainTab === "scheduled" ? styles.mainTabActive : {}), position: "relative" }} onClick={() => setMainTab("scheduled")}>
             📅 Interviews
             {scheduled.length > 0 && <span style={styles.badgeCount}>{scheduled.length}</span>}
           </button>
@@ -162,8 +147,6 @@ export default function ShiroHR() {
       </div>
 
       <div style={styles.body}>
-
-        {/* SCHEDULE MODAL */}
         {scheduleModal && (
           <div style={styles.modalOverlay}>
             <div style={styles.modal}>
@@ -172,13 +155,11 @@ export default function ShiroHR() {
               <div style={styles.modalCategory}>{scheduleModal.category} · {scheduleModal.score}% match</div>
               <div style={styles.inputGroup}>
                 <div style={styles.inputLabel}>Interview Date</div>
-                <input style={styles.input} type="date" value={scheduleDate}
-                  onChange={e => setScheduleDate(e.target.value)} />
+                <input style={styles.input} type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} />
               </div>
               <div style={styles.inputGroup}>
                 <div style={styles.inputLabel}>Interview Time</div>
-                <input style={styles.input} type="time" value={scheduleTime}
-                  onChange={e => setScheduleTime(e.target.value)} />
+                <input style={styles.input} type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} />
               </div>
               <div style={styles.modalBtns}>
                 <button style={styles.cancelBtn} onClick={() => setScheduleModal(null)}>Cancel</button>
@@ -188,7 +169,6 @@ export default function ShiroHR() {
           </div>
         )}
 
-        {/* SCHEDULED INTERVIEWS TAB */}
         {mainTab === "scheduled" && (
           <div>
             <div style={styles.pageTitle}>📅 Scheduled Interviews <span style={styles.totalCount}>{scheduled.length} interviews</span></div>
@@ -204,9 +184,7 @@ export default function ShiroHR() {
                   <div key={i} style={styles.scheduledCard}>
                     <div style={styles.scheduledHeader}>
                       <div style={styles.scheduledName}>{s.name || s.filename}</div>
-                      <div style={{ ...styles.categoryBadge, background: categoryConfig[s.category]?.bg, color: categoryConfig[s.category]?.color }}>
-                        {s.category}
-                      </div>
+                      <div style={{ ...styles.categoryBadge, background: categoryConfig[s.category]?.bg, color: categoryConfig[s.category]?.color }}>{s.category}</div>
                     </div>
                     <div style={styles.scheduledDetails}>
                       <div style={styles.scheduledDetail}>📅 <b>{s.interviewDate}</b></div>
@@ -214,9 +192,7 @@ export default function ShiroHR() {
                       <div style={styles.scheduledDetail}>🎯 Match: <b>{s.score}%</b></div>
                     </div>
                     <div style={styles.scheduledAt}>Scheduled at: {s.scheduledAt}</div>
-                    <button style={styles.removeScheduleBtn} onClick={() => setScheduled(prev => prev.filter((_, j) => j !== i))}>
-                      Remove
-                    </button>
+                    <button style={styles.removeScheduleBtn} onClick={() => setScheduled(prev => prev.filter((_, j) => j !== i))}>Remove</button>
                   </div>
                 ))}
               </div>
@@ -224,7 +200,6 @@ export default function ShiroHR() {
           </div>
         )}
 
-        {/* SCREENING TAB */}
         {mainTab === "screening" && (
           !results ? (
             <div style={styles.setupPanel}>
@@ -232,10 +207,8 @@ export default function ShiroHR() {
                 <div style={styles.stepLabel}><span style={styles.stepNum}>01</span> Job Description</div>
                 <div style={{ ...styles.dropZone, ...(dragOver === "jd" ? styles.dropZoneActive : {}) }}
                   onDragOver={e => { e.preventDefault(); setDragOver("jd"); }}
-                  onDragLeave={() => setDragOver(null)} onDrop={handleJdDrop}
-                  onClick={() => jdRef.current.click()}>
-                  <input ref={jdRef} type="file" accept=".pdf,.doc,.docx" style={{ display: "none" }}
-                    onChange={e => setJdFile(e.target.files[0])} />
+                  onDragLeave={() => setDragOver(null)} onDrop={handleJdDrop} onClick={() => jdRef.current.click()}>
+                  <input ref={jdRef} type="file" accept=".pdf,.doc,.docx" style={{ display: "none" }} onChange={e => setJdFile(e.target.files[0])} />
                   {jdFile ? (
                     <div style={styles.fileChip}>
                       <span style={styles.fileIcon}>📄</span>
@@ -259,8 +232,7 @@ export default function ShiroHR() {
                 </div>
                 <div style={{ ...styles.dropZone, minHeight: 100, ...(dragOver === "resume" ? styles.dropZoneActive : {}) }}
                   onDragOver={e => { e.preventDefault(); setDragOver("resume"); }}
-                  onDragLeave={() => setDragOver(null)} onDrop={handleResumeDrop}
-                  onClick={() => resumeRef.current.click()}>
+                  onDragLeave={() => setDragOver(null)} onDrop={handleResumeDrop} onClick={() => resumeRef.current.click()}>
                   <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" multiple webkitdirectory=""
                     style={{ display: "none" }} onChange={e => setResumeFiles(prev => [...prev, ...Array.from(e.target.files)])} />
                   {resumeFiles.length === 0 ? (
@@ -316,9 +288,9 @@ export default function ShiroHR() {
                 <div style={styles.summaryTitle}>
                   <button style={styles.backBtn} onClick={() => setResults(null)}>← Back</button>
                   <button style={styles.exportBtn} onClick={async () => {
-                    const res = await fetch("/api/export-excel", {
+                    const res = await fetch(`${API}/api/export-excel`, {
                       method: "POST",
-                      headers: { "Content-Type": "application/json", "Authorization": "Basic " + btoa(`${auth.username}:${auth.password}`) },
+                      headers: { "Content-Type": "application/json", "Authorization": "Basic " + btoa(`${auth.username.trim()}:${auth.password.trim()}`) },
                       body: JSON.stringify(results)
                     });
                     const blob = await res.blob();
@@ -342,8 +314,7 @@ export default function ShiroHR() {
 
               <div style={styles.tabs}>
                 {["all", ...Object.keys(categoryConfig)].map(tab => (
-                  <button key={tab} style={{ ...styles.tab, ...(activeTab === tab ? styles.tabActive : {}) }}
-                    onClick={() => setActiveTab(tab)}>
+                  <button key={tab} style={{ ...styles.tab, ...(activeTab === tab ? styles.tabActive : {}) }} onClick={() => setActiveTab(tab)}>
                     {tab === "all" ? "All Candidates" : tab}
                     {tab !== "all" && <span style={{ ...styles.tabCount, color: categoryConfig[tab].color }}>{categoryCounts?.[tab] || 0}</span>}
                   </button>

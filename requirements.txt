@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 python-multipart
+groq
 httpx
 PyPDF2
 docx2txt

@@ -5,10 +5,11 @@ from fastapi import FastAPI, File, UploadFile, Form, Depends, HTTPException, sta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-import json, os, re, secrets, httpx
+import json, os, re, secrets
 import PyPDF2, docx2txt, io
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
+from groq import Groq
 
 app = FastAPI(title="Shiro AI HR", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -16,7 +17,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 security = HTTPBasic()
 HR_USERNAME = os.environ.get("HR_USERNAME", "hr_admin")
 HR_PASSWORD = os.environ.get("HR_PASSWORD", "shiro@2026")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 def verify_hr(credentials: HTTPBasicCredentials = Depends(security)):
     ok_user = secrets.compare_digest(credentials.username.strip(), HR_USERNAME.strip())
@@ -38,7 +39,7 @@ def extract_text(file_bytes, filename):
     except:
         return ""
 
-async def screen_candidate(jd_text, resume_text, filename, weights):
+def screen_candidate(jd_text, resume_text, filename, weights):
     prompt = f"""You are an expert HR recruiter. Evaluate this resume against the job description.
 
 JOB DESCRIPTION:
@@ -54,25 +55,14 @@ Respond with ONLY this JSON (no markdown, no extra text):
 
 Categories: Highly Recommended>=80, Recommended>=60, Consider>=40, Not Recommended<40"""
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://shiro-front.onrender.com",
-                "X-Title": "Shiro AI HR"
-            },
-            json={
-                "model": "meta-llama/llama-3.3-70b-instruct:free",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3
-            }
-        )
-    data = r.json()
-    content = data["choices"][0]["message"]["content"]
-    content = re.sub(r"```json|```", "", content).strip()
-    result = json.loads(content)
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3
+    )
+    raw = response.choices[0].message.content.strip()
+    raw = re.sub(r"```json|```", "", raw).strip()
+    result = json.loads(raw)
     result["filename"] = filename
     return result
 
@@ -99,7 +89,7 @@ async def screen_resumes(
             candidates.append({"filename": resume.filename, "name": resume.filename, "score": 0, "category": "Not Recommended", "summary": "Could not extract text.", "breakdown": {"skills":0,"experience":0,"education":0,"certifications":0}})
             continue
         try:
-            result = await screen_candidate(jd_text, resume_text, resume.filename, weights_dict)
+            result = screen_candidate(jd_text, resume_text, resume.filename, weights_dict)
             candidates.append(result)
         except Exception as e:
             candidates.append({"filename": resume.filename, "name": resume.filename, "score": 0, "category": "Not Recommended", "summary": f"Error: {str(e)}", "breakdown": {"skills":0,"experience":0,"education":0,"certifications":0}})

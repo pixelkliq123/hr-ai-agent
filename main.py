@@ -10,6 +10,9 @@ import PyPDF2, docx2txt, io
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
 from groq import Groq
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = FastAPI(title="Shiro AI HR", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -17,6 +20,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 security = HTTPBasic()
 HR_USERNAME = os.environ.get("HR_USERNAME", "hr_admin")
 HR_PASSWORD = os.environ.get("HR_PASSWORD", "shiro@2026")
+MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+MAIL_FROM = os.environ.get("MAIL_FROM")
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 def verify_hr(credentials: HTTPBasicCredentials = Depends(security)):
@@ -38,6 +44,36 @@ def extract_text(file_bytes, filename):
             return file_bytes.decode("utf-8", errors="ignore")
     except:
         return ""
+
+def send_email(to_email: str, candidate_name: str, job_title: str, interview_date: str, interview_time: str):
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = MAIL_FROM
+        msg["To"] = to_email
+        msg["Subject"] = f"Interview Invitation - {job_title} | PixelKliQ Technologies"
+        body = f"""
+Dear {candidate_name},
+
+We are pleased to inform you that you have been shortlisted for the position of {job_title} at PixelKliQ Technologies.
+
+Your interview has been scheduled as follows:
+📅 Date: {interview_date}
+⏰ Time: {interview_time}
+
+Please confirm your availability by replying to this email.
+
+Best regards,
+HR Team
+PixelKliQ Technologies
+        """
+        msg.attach(MIMEText(body, "plain"))
+        with smtplib.SMTP_SSL("smtp.zoho.in", 465) as server:
+            server.login(MAIL_USERNAME, MAIL_PASSWORD)
+            server.sendmail(MAIL_FROM, to_email, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Email error: {e}")
+        return False
 
 def screen_candidate(jd_text, resume_text, filename, weights):
     prompt = f"""You are an expert HR recruiter. Evaluate this resume against the job description.
@@ -96,6 +132,23 @@ async def screen_resumes(
 
     candidates.sort(key=lambda x: x.get("score", 0), reverse=True)
     return {"total": len(candidates), "candidates": candidates, "jd_filename": jd_file.filename}
+
+@app.post("/api/send-email")
+async def send_interview_email(data: dict, username: str = Depends(verify_hr)):
+    to_email = data.get("email")
+    candidate_name = data.get("name")
+    job_title = data.get("job_title", "the position")
+    interview_date = data.get("interview_date")
+    interview_time = data.get("interview_time")
+
+    if not to_email:
+        return JSONResponse(status_code=400, content={"error": "Email address required"})
+
+    success = send_email(to_email, candidate_name, job_title, interview_date, interview_time)
+    if success:
+        return {"status": "sent", "message": f"Email sent to {to_email}"}
+    else:
+        return JSONResponse(status_code=500, content={"error": "Failed to send email"})
 
 @app.post("/api/export-excel")
 async def export_excel(data: dict, username: str = Depends(verify_hr)):

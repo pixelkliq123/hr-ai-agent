@@ -24,6 +24,8 @@ export default function ShiroHR() {
   const [scheduleModal, setScheduleModal] = useState(null);
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleEmail, setScheduleEmail] = useState("");
+  const [emailStatus, setEmailStatus] = useState("");
   const [mainTab, setMainTab] = useState("screening");
 
   const jdRef = useRef();
@@ -84,12 +86,48 @@ export default function ShiroHR() {
     }
   };
 
-  const handleSchedule = (candidate) => { setScheduleModal(candidate); setScheduleDate(""); setScheduleTime(""); };
+  const handleSchedule = (candidate) => {
+    setScheduleModal(candidate);
+    setScheduleDate("");
+    setScheduleTime("");
+    setScheduleEmail("");
+    setEmailStatus("");
+  };
 
-  const confirmSchedule = () => {
+  const confirmSchedule = async () => {
     if (!scheduleDate || !scheduleTime) return;
-    setScheduled(prev => [...prev, { ...scheduleModal, interviewDate: scheduleDate, interviewTime: scheduleTime, scheduledAt: new Date().toLocaleString() }]);
-    setScheduleModal(null);
+    setScheduled(prev => [...prev, {
+      ...scheduleModal,
+      interviewDate: scheduleDate,
+      interviewTime: scheduleTime,
+      email: scheduleEmail,
+      scheduledAt: new Date().toLocaleString()
+    }]);
+
+    if (scheduleEmail) {
+      setEmailStatus("sending");
+      try {
+        const res = await fetch(`${API}/api/send-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Basic " + btoa(`${auth.username.trim()}:${auth.password.trim()}`)
+          },
+          body: JSON.stringify({
+            email: scheduleEmail,
+            name: scheduleModal.name || scheduleModal.filename,
+            job_title: results?.jd_filename || "the position",
+            interview_date: scheduleDate,
+            interview_time: scheduleTime
+          })
+        });
+        if (res.ok) setEmailStatus("sent");
+        else setEmailStatus("failed");
+      } catch {
+        setEmailStatus("failed");
+      }
+    }
+    setTimeout(() => setScheduleModal(null), emailStatus === "sent" ? 1500 : 0);
   };
 
   const filteredResults = results?.candidates?.filter(c => activeTab === "all" ? true : c.category === activeTab);
@@ -161,9 +199,18 @@ export default function ShiroHR() {
                 <div style={styles.inputLabel}>Interview Time</div>
                 <input style={styles.input} type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} />
               </div>
+              <div style={styles.inputGroup}>
+                <div style={styles.inputLabel}>Candidate Email (optional)</div>
+                <input style={styles.input} type="email" placeholder="candidate@email.com" value={scheduleEmail} onChange={e => setScheduleEmail(e.target.value)} />
+              </div>
+              {emailStatus === "sending" && <div style={styles.emailSending}>📧 Sending email...</div>}
+              {emailStatus === "sent" && <div style={styles.emailSent}>✅ Email sent successfully!</div>}
+              {emailStatus === "failed" && <div style={styles.emailFailed}>❌ Email failed to send</div>}
               <div style={styles.modalBtns}>
                 <button style={styles.cancelBtn} onClick={() => setScheduleModal(null)}>Cancel</button>
-                <button style={styles.confirmBtn} onClick={confirmSchedule}>✅ Confirm Schedule</button>
+                <button style={styles.confirmBtn} onClick={confirmSchedule}>
+                  {scheduleEmail ? "✅ Schedule & Send Email" : "✅ Confirm Schedule"}
+                </button>
               </div>
             </div>
           </div>
@@ -190,6 +237,7 @@ export default function ShiroHR() {
                       <div style={styles.scheduledDetail}>📅 <b>{s.interviewDate}</b></div>
                       <div style={styles.scheduledDetail}>⏰ <b>{s.interviewTime}</b></div>
                       <div style={styles.scheduledDetail}>🎯 Match: <b>{s.score}%</b></div>
+                      {s.email && <div style={styles.scheduledDetail}>📧 <b>{s.email}</b></div>}
                     </div>
                     <div style={styles.scheduledAt}>Scheduled at: {s.scheduledAt}</div>
                     <button style={styles.removeScheduleBtn} onClick={() => setScheduled(prev => prev.filter((_, j) => j !== i))}>Remove</button>
@@ -400,7 +448,7 @@ const styles = {
   scheduledCard: { background: "#13151C", border: "1px solid #1E2130", borderLeft: "3px solid #4A9EFF", borderRadius: 12, padding: "20px 24px" },
   scheduledHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   scheduledName: { fontSize: 15, fontWeight: 600 },
-  scheduledDetails: { display: "flex", gap: 20, marginBottom: 8 },
+  scheduledDetails: { display: "flex", gap: 20, marginBottom: 8, flexWrap: "wrap" },
   scheduledDetail: { fontSize: 13, color: "#8892A0" },
   scheduledAt: { fontSize: 11, color: "#3A4050", marginBottom: 12 },
   removeScheduleBtn: { background: "#FF5C5C20", border: "1px solid #FF5C5C40", color: "#FF5C5C", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer" },
@@ -409,6 +457,9 @@ const styles = {
   modalTitle: { fontSize: 18, fontWeight: 700, marginBottom: 12 },
   modalName: { fontSize: 15, fontWeight: 600, color: "#E8EAF0", marginBottom: 4 },
   modalCategory: { fontSize: 12, color: "#5A6070", marginBottom: 20 },
+  emailSending: { fontSize: 12, color: "#F5C842", marginBottom: 8 },
+  emailSent: { fontSize: 12, color: "#00C896", marginBottom: 8 },
+  emailFailed: { fontSize: 12, color: "#FF5C5C", marginBottom: 8 },
   modalBtns: { display: "flex", gap: 10, marginTop: 20 },
   cancelBtn: { flex: 1, background: "#1E2130", border: "1px solid #2A3040", color: "#8892A0", borderRadius: 8, padding: "10px", fontSize: 13, cursor: "pointer" },
   confirmBtn: { flex: 2, background: "linear-gradient(135deg, #F5C842, #E8A020)", color: "#0D0F14", border: "none", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer" },

@@ -25,6 +25,12 @@ MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
 MAIL_FROM = os.environ.get("MAIL_FROM")
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
+JOBS = [
+    {"id": 1, "title": "Business Development Associate", "location": "Gurgaon", "experience": "0-2 years", "description": "We are looking for energetic BDA candidates with strong sales acumen, excellent English communication skills, comfortable in target-driven environment, strong relationship building skills. Graduation mandatory. B2C sales or EdTech internship experience preferred."},
+    {"id": 2, "title": "AI/ML Engineer", "location": "Chennai", "experience": "0-1 years", "description": "We are looking for fresher AI/ML engineers with Python and LLM experience. Skills required: Python, TensorFlow, PyTorch, scikit-learn, RAG pipelines, prompt engineering, LLM integration. Freshers welcome."},
+    {"id": 3, "title": "Data Analyst", "location": "Chennai", "experience": "0-2 years", "description": "We are looking for data analysts with SQL, Python and Power BI skills. Must know data visualization, dashboard creation, DAX, Excel. Freshers welcome."},
+]
+
 def verify_hr(credentials: HTTPBasicCredentials = Depends(security)):
     ok_user = secrets.compare_digest(credentials.username.strip(), HR_USERNAME.strip())
     ok_pass = secrets.compare_digest(credentials.password.strip(), HR_PASSWORD.strip())
@@ -44,36 +50,6 @@ def extract_text(file_bytes, filename):
             return file_bytes.decode("utf-8", errors="ignore")
     except:
         return ""
-
-def send_email(to_email: str, candidate_name: str, job_title: str, interview_date: str, interview_time: str):
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = MAIL_FROM
-        msg["To"] = to_email
-        msg["Subject"] = f"Interview Invitation - {job_title} | PixelKliQ Technologies"
-        body = f"""
-Dear {candidate_name},
-
-We are pleased to inform you that you have been shortlisted for the position of {job_title} at PixelKliQ Technologies.
-
-Your interview has been scheduled as follows:
-📅 Date: {interview_date}
-⏰ Time: {interview_time}
-
-Please confirm your availability by replying to this email.
-
-Best regards,
-HR Team
-PixelKliQ Technologies
-        """
-        msg.attach(MIMEText(body, "plain"))
-        with smtplib.SMTP_SSL("smtp.zoho.in", 465) as server:
-            server.login(MAIL_USERNAME, MAIL_PASSWORD)
-            server.sendmail(MAIL_FROM, to_email, msg.as_string())
-        return True
-    except Exception as e:
-        print(f"Email error: {e}")
-        return False
 
 def screen_candidate(jd_text, resume_text, filename, weights):
     prompt = f"""You are an expert HR recruiter. Evaluate this resume against the job description.
@@ -101,6 +77,102 @@ Categories: Highly Recommended>=80, Recommended>=60, Consider>=40, Not Recommend
     result = json.loads(raw)
     result["filename"] = filename
     return result
+
+def send_email(to_email, subject, body):
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = MAIL_FROM
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+        with smtplib.SMTP_SSL("smtp.zoho.in", 465) as server:
+            server.login(MAIL_USERNAME, MAIL_PASSWORD)
+            server.sendmail(MAIL_FROM, to_email, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Email error: {e}")
+        return False
+
+# ── CANDIDATE PORTAL ENDPOINTS ────────────────────────────────
+
+@app.get("/api/jobs")
+async def get_jobs():
+    return {"jobs": JOBS}
+
+@app.post("/api/candidate/apply")
+async def candidate_apply(
+    candidate_name: str = Form(...),
+    candidate_email: str = Form(...),
+    job_id: int = Form(...),
+    resume_file: UploadFile = File(...)
+):
+    job = next((j for j in JOBS if j["id"] == job_id), None)
+    if not job:
+        return JSONResponse(status_code=404, content={"error": "Job not found"})
+
+    resume_bytes = await resume_file.read()
+    resume_text = extract_text(resume_bytes, resume_file.filename)
+
+    if not resume_text.strip():
+        return JSONResponse(status_code=400, content={"error": "Could not extract text from resume"})
+
+    weights = {"skills": 40, "experience": 30, "education": 15, "certifications": 15}
+    try:
+        result = screen_candidate(job["description"], resume_text, resume_file.filename, weights)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # Email to HR
+    hr_body = f"""
+New Candidate Application Received!
+
+Candidate: {candidate_name}
+Email: {candidate_email}
+Applied for: {job['title']}
+Location: {job['location']}
+
+AI Assessment:
+Score: {result.get('score')}%
+Category: {result.get('category')}
+Summary: {result.get('summary')}
+
+Score Breakdown:
+- Skills: {result.get('breakdown', {}).get('skills')}%
+- Experience: {result.get('breakdown', {}).get('experience')}%
+- Education: {result.get('breakdown', {}).get('education')}%
+- Certifications: {result.get('breakdown', {}).get('certifications')}%
+
+Best regards,
+Shiro AI HR System
+PixelKliQ Technologies
+    """
+    send_email(MAIL_USERNAME, f"New Application: {candidate_name} for {job['title']}", hr_body)
+
+    # Confirmation email to candidate
+    candidate_body = f"""
+Dear {candidate_name},
+
+Thank you for applying for {job['title']} at PixelKliQ Technologies!
+
+We have received your application and our AI screening system has processed your profile. Our HR team will review and get back to you shortly.
+
+Best regards,
+HR Team
+PixelKliQ Technologies
+    """
+    send_email(candidate_email, f"Application Received - {job['title']} | PixelKliQ Technologies", candidate_body)
+
+    return {
+        "status": "success",
+        "message": "Application submitted successfully!",
+        "candidate": candidate_name,
+        "job": job["title"],
+        "score": result.get("score"),
+        "category": result.get("category"),
+        "summary": result.get("summary")
+    }
+
+# ── HR PORTAL ENDPOINTS ───────────────────────────────────────
 
 @app.post("/api/screen")
 async def screen_resumes(
@@ -144,7 +216,22 @@ async def send_interview_email(data: dict, username: str = Depends(verify_hr)):
     if not to_email:
         return JSONResponse(status_code=400, content={"error": "Email address required"})
 
-    success = send_email(to_email, candidate_name, job_title, interview_date, interview_time)
+    body = f"""
+Dear {candidate_name},
+
+We are pleased to inform you that you have been shortlisted for {job_title} at PixelKliQ Technologies.
+
+Interview Details:
+Date: {interview_date}
+Time: {interview_time}
+
+Please confirm your availability by replying to this email.
+
+Best regards,
+HR Team
+PixelKliQ Technologies
+    """
+    success = send_email(to_email, f"Interview Invitation - {job_title} | PixelKliQ Technologies", body)
     if success:
         return {"status": "sent", "message": f"Email sent to {to_email}"}
     else:
